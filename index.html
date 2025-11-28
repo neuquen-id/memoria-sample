@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juego de Memoria</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        
+        #menu {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        
+        h1 {
+            color: #667eea;
+            margin-bottom: 30px;
+        }
+        
+        .difficulty-btn {
+            display: block;
+            width: 200px;
+            padding: 15px;
+            margin: 10px auto;
+            font-size: 18px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            font-weight: bold;
+        }
+        
+        .difficulty-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .easy { background: #4ade80; color: white; }
+        .medium { background: #fbbf24; color: white; }
+        .hard { background: #f87171; color: white; }
+        
+        #gameContainer {
+            display: none;
+            position: relative;
+        }
+        
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(6, 80px);
+            grid-template-rows: repeat(6, 80px);
+            gap: 3px;
+            background: transparent;
+            padding: 10px;
+            border-radius: 10px;
+            position: relative;
+            width: 498px;
+            height: 498px;
+        }
+        
+        .cell {
+            background: transparent;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        
+        .circle {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            position: absolute;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+        
+        .red { background: #ef4444; }
+        .yellow { background: #fbbf24; }
+        .white { background: #f3f4f6; border: 3px solid #9ca3af; }
+        .blue { background: #3b82f6; }
+        
+        #cover {
+            position: absolute;
+            background: linear-gradient(135deg, #ec4899, #8b5cf6);
+            border-radius: 10px;
+            opacity: 0;
+            z-index: 15;
+            transition: opacity 0.5s;
+        }
+        
+        #message {
+            position: absolute;
+            top: -80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 20px 40px;
+            border-radius: 15px;
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        #stats {
+            margin-top: 20px;
+            background: white;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #4b5563;
+        }
+    </style>
+</head>
+<body>
+    <div id="menu">
+        <h1>🎮 Juego de Memoria</h1>
+        <p>Selecciona la dificultad:</p>
+        <button class="difficulty-btn easy" onclick="startGame('easy')">FÁCIL</button>
+        <button class="difficulty-btn medium" onclick="startGame('medium')">MEDIO</button>
+        <button class="difficulty-btn hard" onclick="startGame('hard')">DIFÍCIL</button>
+    </div>
+    
+    <div id="gameContainer">
+        <div id="message"></div>
+        <div id="grid"></div>
+        <div id="cover"></div>
+        <div id="stats">Movimiento: <span id="moveCount">0</span> / <span id="totalMoves">0</span></div>
+    </div>
+
+    <script>
+        let difficulty = '';
+        let totalMoves = 0;
+        let currentMove = 0;
+        let speed = 1000;
+        let circles = [];
+        
+        // Posiciones finales internas
+        const finalPositions = [
+            {x: 186, y: 186}, // pos 1
+            {x: 269, y: 186}, // pos 2
+            {x: 186, y: 269}, // pos 3
+            {x: 269, y: 269}  // pos 4
+        ];
+        
+        // Posiciones de salida (solo lados contiguos a cada posición)
+        const exitPositions = {
+            1: [{x: 20, y: 186}, {x: 103, y: 186}, {x: 186, y: 20}, {x: 186, y: 103}],  // pos 1: izquierda y arriba
+            2: [{x: 352, y: 186}, {x: 435, y: 186}, {x: 269, y: 20}, {x: 269, y: 103}], // pos 2: derecha y arriba
+            3: [{x: 20, y: 269}, {x: 103, y: 269}, {x: 186, y: 352}, {x: 186, y: 435}], // pos 3: izquierda y abajo
+            4: [{x: 352, y: 269}, {x: 435, y: 269}, {x: 269, y: 352}, {x: 269, y: 435}] // pos 4: derecha y abajo
+        };
+        
+        // ENTRADA: Solo por lados contiguos a la posición de destino
+        function getAlignedEntryPosition(targetIndex) {
+            const target = finalPositions[targetIndex];
+            const options = [];
+            
+            // Posición 0 (arriba-izquierda): solo desde izquierda o arriba
+            if (targetIndex === 0) {
+                options.push({x: 20, y: target.y});   // izquierda
+                options.push({x: 103, y: target.y});  // izquierda
+                options.push({x: target.x, y: 20});   // arriba
+                options.push({x: target.x, y: 103});  // arriba
+            }
+            // Posición 1 (arriba-derecha): solo desde derecha o arriba
+            else if (targetIndex === 1) {
+                options.push({x: 352, y: target.y});  // derecha
+                options.push({x: 435, y: target.y});  // derecha
+                options.push({x: target.x, y: 20});   // arriba
+                options.push({x: target.x, y: 103});  // arriba
+            }
+            // Posición 2 (abajo-izquierda): solo desde izquierda o abajo
+            else if (targetIndex === 2) {
+                options.push({x: 20, y: target.y});   // izquierda
+                options.push({x: 103, y: target.y});  // izquierda
+                options.push({x: target.x, y: 352});  // abajo
+                options.push({x: target.x, y: 435});  // abajo
+            }
+            // Posición 3 (abajo-derecha): solo desde derecha o abajo
+            else if (targetIndex === 3) {
+                options.push({x: 352, y: target.y});  // derecha
+                options.push({x: 435, y: target.y});  // derecha
+                options.push({x: target.x, y: 352});  // abajo
+                options.push({x: target.x, y: 435});  // abajo
+            }
+            
+            return options[Math.floor(Math.random() * options.length)];
+        }
+        
+        function startGame(diff) {
+            difficulty = diff;
+            
+            if (diff === 'easy') {
+                totalMoves = 3;
+                speed = 1500;
+            } else if (diff === 'medium') {
+                totalMoves = 4;
+                speed = 1000;
+            } else {
+                totalMoves = 5;
+                speed = 600;
+            }
+            
+            document.getElementById('menu').style.display = 'none';
+            document.getElementById('gameContainer').style.display = 'block';
+            document.getElementById('totalMoves').textContent = totalMoves;
+            
+            createGrid();
+            setTimeout(initGame, 500);
+        }
+        
+        function createGrid() {
+            const grid = document.getElementById('grid');
+            grid.innerHTML = '';
+            
+            for (let i = 0; i < 36; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                grid.appendChild(cell);
+            }
+        }
+        
+        function initGame() {
+            showMessage('¡ATENTO!');
+            
+            const colors = ['red', 'yellow', 'white', 'blue'];
+            const shuffled = [...colors].sort(() => Math.random() - 0.5);
+            
+            const grid = document.getElementById('grid');
+            
+            circles = shuffled.map((color, i) => {
+                const circle = document.createElement('div');
+                circle.className = `circle ${color}`;
+                circle.style.left = finalPositions[i].x + 'px';
+                circle.style.top = finalPositions[i].y + 'px';
+                circle.dataset.position = i;
+                circle.dataset.color = color;
+                grid.appendChild(circle);
+                return circle;
+            });
+            
+            setTimeout(() => {
+                hideMessage();
+                setTimeout(coverCircles, 500);
+            }, 5000);
+        }
+        
+        function coverCircles() {
+            const cover = document.getElementById('cover');
+            cover.style.left = '176px';
+            cover.style.top = '176px';
+            cover.style.width = '169px';
+            cover.style.height = '169px';
+            cover.style.opacity = '1';
+            
+            setTimeout(() => startRound(), 1000);
+        }
+        
+        function startRound() {
+            if (currentMove >= totalMoves) {
+                showMessage('¿Cómo quedaron las fichas?');
+                setTimeout(() => {
+                    document.getElementById('cover').style.opacity = '0';
+                    setTimeout(() => {
+                        hideMessage();
+                        setTimeout(() => {
+                            alert('¡Juego completado! Reiniciando...');
+                            location.reload();
+                        }, 3000);
+                    }, 5000);
+                }, 2000);
+                return;
+            }
+            
+            currentMove++;
+            document.getElementById('moveCount').textContent = currentMove;
+            
+            const cant = Math.floor(Math.random() * 4) + 1;
+            const available = circles.filter(c => parseInt(c.dataset.position) >= 0 && parseInt(c.dataset.position) <= 3);
+            const toMove = [];
+            
+            for (let i = 0; i < cant && available.length > 0; i++) {
+                const idx = Math.floor(Math.random() * available.length);
+                toMove.push(available[idx]);
+                available.splice(idx, 1);
+            }
+            
+            moveCirclesOut(toMove);
+        }
+        
+        function moveCirclesOut(circlesToMove) {
+            let delay = 0;
+            
+            circlesToMove.forEach(circle => {
+                setTimeout(() => {
+                    const pos = parseInt(circle.dataset.position);
+                    const exitPos = exitPositions[pos + 1][Math.floor(Math.random() * exitPositions[pos + 1].length)];
+                    
+                    circle.style.transition = `all ${speed}ms`;
+                    circle.style.left = exitPos.x + 'px';
+                    circle.style.top = exitPos.y + 'px';
+                    
+                    setTimeout(() => {
+                        circle.style.opacity = '0';
+                        circle.dataset.position = '-1';
+                    }, speed + 500);
+                }, delay);
+                
+                delay += speed + 700;
+            });
+            
+            setTimeout(() => moveCirclesIn(circlesToMove), delay + 500);
+        }
+        
+        function moveCirclesIn(circlesToMove) {
+            // Encontrar posiciones vacías ANTES de empezar a mover
+            const emptyPositions = [0, 1, 2, 3].filter(pos => 
+                !circles.some(c => parseInt(c.dataset.position) === pos)
+            );
+            
+            // Mezclar las fichas que van a entrar
+            const shuffled = [...circlesToMove].sort(() => Math.random() - 0.5);
+            
+            // Asignar cada ficha a una posición vacía
+            const assignments = [];
+            for (let i = 0; i < Math.min(shuffled.length, emptyPositions.length); i++) {
+                assignments.push({
+                    circle: shuffled[i],
+                    targetIndex: emptyPositions[i]
+                });
+            }
+            
+            let delay = 0;
+            
+            assignments.forEach(({circle, targetIndex}) => {
+                setTimeout(() => {
+                    const entryPos = getAlignedEntryPosition(targetIndex);
+                    
+                    // Aparecer en posición alineada
+                    circle.style.transition = 'none';
+                    circle.style.left = entryPos.x + 'px';
+                    circle.style.top = entryPos.y + 'px';
+                    circle.style.opacity = '1';
+                    
+                    // Moverse en línea recta al destino
+                    setTimeout(() => {
+                        circle.style.transition = `all ${speed}ms`;
+                        circle.style.left = finalPositions[targetIndex].x + 'px';
+                        circle.style.top = finalPositions[targetIndex].y + 'px';
+                        circle.dataset.position = targetIndex;
+                    }, 100);
+                }, delay);
+                
+                delay += speed + 500;
+            });
+            
+            setTimeout(() => startRound(), delay + 500);
+        }
+        
+        function showMessage(text) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.style.opacity = '1';
+        }
+        
+        function hideMessage() {
+            document.getElementById('message').style.opacity = '0';
+        }
+    </script>
+</body>
+</html>
